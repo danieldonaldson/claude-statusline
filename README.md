@@ -19,19 +19,31 @@ This script parses that JSON with `jq`. Single bash file, no extra dependencies.
 ## Install
 
 ```bash
-cp statusline-command.sh ~/.claude/statusline-command.sh
-chmod +x ~/.claude/statusline-command.sh
+git clone git@github.com:danieldonaldson/claude-statusline.git ~/Work/claude-statusline
+~/Work/claude-statusline/install.sh
 ```
 
-Add to `~/.claude/settings.json`:
+`install.sh` symlinks `statusline-command.sh` and `hooks/wakeup-marker.sh` into `~/.claude` (or `$CLAUDE_CONFIG_DIR`), so a `git pull` updates them in place. It also merges these entries into `settings.json` (with a backup) and leaves everything else as it was. It's safe to re-run.
 
 ```json
 {
   "statusLine": {
-    "command": "bash ~/.claude/statusline-command.sh"
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh",
+    "refreshInterval": 30
+  },
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "^ScheduleWakeup$",
+        "hooks": [{ "type": "command", "command": "bash ~/.claude/hooks/wakeup-marker.sh", "timeout": 5 }] }
+    ]
   }
 }
 ```
+
+`refreshInterval` re-renders every 30s so countdowns keep ticking between messages. The `wakeup-marker.sh` hook records pending `ScheduleWakeup` calls (self-paced `/loop`) so the bar can show `⏰ <countdown>` and the reason.
+
+To pull upstream changes: `git pull upstream main` (remote `upstream` = `vfmatzkin/claude-statusline`).
 
 ## Requirements
 

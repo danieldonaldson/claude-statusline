@@ -5,11 +5,14 @@ set -f
 
 usage_dir="${CLAUDE_USAGE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/usage}"
 
+# In-place sed that works with both GNU (Linux) and BSD (macOS) sed.
+sedi() { sed -i.bak "$@" && rm -f "${@: -1}.bak"; }
+
 # budget subcommand: bash statusline-command.sh budget <new_budget>
 # Updates the budget= line in .config.
 if [ "${1:-}" = "budget" ] && [ -n "${2:-}" ]; then
     [ ! -f "$usage_dir/.config" ] && echo "no config at $usage_dir/.config" && exit 1
-    sed -i '' "s/^budget=.*/budget=$2/" "$usage_dir/.config"
+    sedi "s/^budget=.*/budget=$2/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -18,7 +21,7 @@ fi
 # Directly overwrites initial_usage= in .config (no offset files written).
 if [ "${1:-}" = "usage" ] && [ -n "${2:-}" ]; then
     [ ! -f "$usage_dir/.config" ] && echo "no config at $usage_dir/.config" && exit 1
-    sed -i '' "s/^initial_usage=.*/initial_usage=$2/" "$usage_dir/.config"
+    sedi "s/^initial_usage=.*/initial_usage=$2/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -38,7 +41,7 @@ if [ "${1:-}" = "sync" ] && [ -n "${2:-}" ]; then
         [ -n "$cost" ] && printf '%s\t-%s\toffset\t0\t0\t0\n' "$(date +%s)" "$cost" > "${f}_offset"
     done
     set -f
-    sed -i '' "s/^initial_usage=.*/initial_usage=$2/; s/^start_ts=.*/start_ts=0/" "$usage_dir/.config"
+    sedi "s/^initial_usage=.*/initial_usage=$2/; s/^start_ts=.*/start_ts=0/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -75,14 +78,24 @@ sep=" ${dim}│${reset} "
 fmt_time() {
     local m="$1"
     [ -z "$m" ] && return
-    [ "$m" -gt 99 ] && echo "$((m / 60))h" || echo "${m}m"
+    # 45m | 2h30m | 3d12h  (previously truncated 2h59m → "2h")
+    if   [ "$m" -lt 60 ];   then echo "${m}m"
+    elif [ "$m" -lt 1440 ]; then printf '%dh%02dm\n' $((m / 60)) $((m % 60))
+    else                         printf '%dd%dh\n'   $((m / 1440)) $((m % 1440 / 60))
+    fi
 }
 
-# epoch seconds → local clock time (HH:MM). BSD date -r, GNU date -d fallback.
+# epoch seconds → local clock time (HH:MM), prefixed with the weekday when
+# it's not today (7d-window times would otherwise be ambiguous).
+# GNU date -d first: on Linux `date -r` means "mtime of file".
 fmt_clock() {
-    local ts="$1"
+    local ts="$1" fmt="+%H:%M"
     [ -z "$ts" ] && return
-    date -r "$ts" +%H:%M 2>/dev/null || date -d "@$ts" +%H:%M 2>/dev/null
+    local day today
+    day=$(date -d "@$ts" +%F 2>/dev/null || date -r "$ts" +%F 2>/dev/null)
+    today=$(date +%F)
+    [ -n "$day" ] && [ "$day" != "$today" ] && fmt="+%a %H:%M"
+    date -d "@$ts" "$fmt" 2>/dev/null || date -r "$ts" "$fmt" 2>/dev/null
 }
 
 # projected% = used% × duration / elapsed
